@@ -4,6 +4,7 @@
 __global__ void cudaHello(){
   // Afficher le message Hello World ainsi que blockidx et threadidx depuis chaque thread
   // A FAIRE ...
+  printf ("Hello from block %d/%d\n" ,blockIdx.x, blockIdx.y); 
 }
 
 int main() {

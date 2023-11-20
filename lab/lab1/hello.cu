@@ -4,12 +4,14 @@
 __global__ void cudaHello(){
   // Afficher le message Hello World ainsi que blockidx et threadidx depuis chaque thread
   // A FAIRE ...
-  printf ("Hello from block %d/%d\n" ,blockIdx.x, blockIdx.y); 
+  // if (threadIdx.x < 32) { }
+
+  printf ("Hello from block %d thread %d\n" ,blockIdx.x, threadIdx.x); 
 }
 
 int main() {
-  int numBlocks = 64;
-  int blockSize = 1;
+  int numBlocks = 1;
+  int blockSize = 256;
   // Experimenter avec de differents blockSize (nombre de threads par block) pour les puissances de 2
   // tout en gardant le nombre total de threads egale a 64
   // A FAIRE ...

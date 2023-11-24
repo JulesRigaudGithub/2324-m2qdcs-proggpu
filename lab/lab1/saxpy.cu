@@ -10,8 +10,9 @@ using namespace std;
 __global__
 void saxpyBlocs(const int N, float a, const float *x, float *y)
 {
-  int idx;
-  // A FAIRE ...
+  int idx = blockIdx.x;
+
+  if (idx < N) { y[idx] = y[idx] + a*x[idx]; }
 }
 
 
@@ -19,8 +20,9 @@ void saxpyBlocs(const int N, float a, const float *x, float *y)
 __global__
 void saxpyBlocsThreads(const int N, float a, const float *x, float *y)
 {
-  int idx;
-  // A FAIRE ...
+  int idx = blockIdx.x*blockDim.x + threadIdx.x;
+
+  if (idx < N) { y[idx] = y[idx] + a*x[idx]; }
 }
 
 
@@ -28,8 +30,12 @@ void saxpyBlocsThreads(const int N, float a, const float *x, float *y)
 __global__
 void saxpyBlocsThreadsKops(const int N, float a, const float *x, float *y, const int k)
 {
-  int idx;
-  // A FAIRE ...
+  int idx = blockIdx.x * blockDim.x * k + threadIdx.x;
+
+  for (int i = 0; i < k; i++) {
+    int iter_idx =  idx + blockDim.x * i;
+    if (iter_idx < N) { y[iter_idx] = y[iter_idx] + a*x[iter_idx]; }
+  }
 }
 
 // Fonction CPU de reference pour l'operation saxpy
@@ -84,44 +90,113 @@ int main(int argc, char **argv)
   // Allouer les vecteurs dx[N] et dy[N] sur le GPU, puis copier x et y dans dx et dy.
   // A FAIRE ...
 
+  cudaError_t cuStat;
+  cuStat = cudaMalloc((void **) &dx, N * sizeof(float));
+  if (cuStat != cudaSuccess) {
+    printf("L'allocation a échoué avec le message d'erreur %s", cudaGetErrorString(cuStat));
+    exit(1);
+  }
+  cuStat = cudaMalloc((void **) &dy, N * sizeof(float));
+  if (cuStat != cudaSuccess) {
+    printf("L'allocation a échoué avec le message d'erreur %s", cudaGetErrorString(cuStat));
+    exit(1);
+  }
+
+  cuStat = cudaMemcpy(dx, x, N * sizeof(float), cudaMemcpyHostToDevice);
+  if (cuStat != cudaSuccess) {
+    printf("Le transfert a échoué avec le message d'erreur %s", cudaGetErrorString(cuStat));
+    exit(1);
+  }
+  cuStat = cudaMemcpy(dy, y, N * sizeof(float), cudaMemcpyHostToDevice);
+  if (cuStat != cudaSuccess) {
+    printf("Le transfert a échoué avec le message d'erreur %s", cudaGetErrorString(cuStat));
+    exit(1);
+  }
+
+
   // Lancer le kernel saxpyBlocs avec un nombre de bloc approprie
   // A FAIRE ...
+  saxpyBlocs<<< N, 1 >>>(N, a, dx, dy);
+
 
   // Copier dy[N] dans res[N] pour la verification sur CPU
   // A FAIRE ...
+  cuStat = cudaMemcpy(res, dy, N * sizeof(float), cudaMemcpyDeviceToHost);
+  if (cuStat != cudaSuccess) {
+    printf("Le transfert a échoué avec le message d'erreur %s", cudaGetErrorString(cuStat));
+    exit(1);
+  }
+
 
   // Verifier le resultat
   verifySaxpy(a, x, y, res, N);
 
   // Re-initialiser dy[N] en recopiant y[N] la-dedans
   // A FAIRE ...
-
+  cuStat = cudaMemcpy(dy, y, N * sizeof(float), cudaMemcpyHostToDevice);
+  if (cuStat != cudaSuccess) {
+    printf("Le transfert a échoué avec le message d'erreur %s", cudaGetErrorString(cuStat));
+    exit(1);
+  }
   // Lancer le kernel saxpyBlocsThreads avec un certain blockSize et nombre de bloc
   // A FAIRE ...
   // blockSize = 32, 64, 128, 256, 512, 1024
+  blockSize = 256;
+  int gridSize = (N - 1)/blockSize + 1;
+
+  saxpyBlocsThreads<<< gridSize, blockSize >>>(N, a, dx, dy);
 
   // Copier dy[N] dans res[N] pour la verification sur CPU
   // A FAIRE ...
+  cuStat = cudaMemcpy(res, dy, N * sizeof(float), cudaMemcpyDeviceToHost);
+  if (cuStat != cudaSuccess) {
+    printf("Le transfert a échoué avec le message d'erreur %s", cudaGetErrorString(cuStat));
+    exit(1);
+  }
 
   // Verifier le resultat
   verifySaxpy(a, x, y, res, N);
 
   // Re-initialiser dy[N] en recopiant y[N] la-dedans
   // A FAIRE ...
+  cuStat = cudaMemcpy(dy, y, N * sizeof(float), cudaMemcpyHostToDevice);
+  if (cuStat != cudaSuccess) {
+    printf("Le transfert a échoué avec le message d'erreur %s", cudaGetErrorString(cuStat));
+    exit(1);
+  }
 
   // Lancer le kernel saxpyBlocsThreadsKops avec un certain blockSize, nombre de bloc, et nombre d'operations par thread (variable k)
   // A FAIRE ...
   // blockSize = 32, 64, 128, 256, 512, 1024
   // k = 1, 2, 4, 8, 16, ...
+  blockSize = 64;
+  k = 4;
+  int gridSizeKops = (N - 1)/(blockSize * k) + 1;
+
+  saxpyBlocsThreadsKops<<< gridSizeKops, blockSize >>>(N, a, dx, dy, k);
+
 
   // Copier dy[N] dans res[N] pour la verification sur CPU
   // A FAIRE ...
+  cuStat = cudaMemcpy(res, dy, N * sizeof(float), cudaMemcpyDeviceToHost);
+  if (cuStat != cudaSuccess) {
+    printf("Le transfert a échoué avec le message d'erreur %s", cudaGetErrorString(cuStat));
+    exit(1);
+  }
 
   // Verifier le resultat
   verifySaxpy(a, x, y, res, N);
 
   // Desallouer les tableau GPU
   // A FAIRE ...
+  cuStat = cudaFree(dx);
+  if (cuStat != cudaSuccess) {
+    printf("La libération de la memoire a echoue avec le code d'erreur \"%s\".\n", cudaGetErrorString(cuStat));
+  }
+  cuStat = cudaFree(dy);
+  if (cuStat != cudaSuccess) {
+    printf("La libération de la memoire a echoue avec le code d'erreur \"%s\".\n", cudaGetErrorString(cuStat));
+  }
 
   // Desallouer les tableaux CPU
   free(x);

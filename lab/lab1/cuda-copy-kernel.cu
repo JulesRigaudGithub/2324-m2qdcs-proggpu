@@ -6,21 +6,13 @@ using namespace std;
 
 __global__ void cudaCopyByBlocks(float *tab0, const float *tab1, int size)
 {
-  int idx;
-  // Compute the correct idx
-  // Calculer le bon idx
-  // TODO / A FAIRE ...
-  // idx = ?
+  int idx = blockIdx.x;
   if (idx < size) { tab0[idx] = tab1[idx]; }
 }
 
 __global__ void cudaCopyByBlocksThreads(float *tab0, const float *tab1, int size)
 {
-  int idx;
-  // Compute the correct idx in terms of blockIdx.x, threadIdx.x, and blockDim.x
-  // Calculer le bon idx en fonction du blockIdx.x, threadIdx.x, et blockDim.x
-  // TODO / A FAIRE ...
-  // idx = ?
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) { tab0[idx] = tab1[idx]; }
 }
 
@@ -45,16 +37,24 @@ int main(int argc, char **argv) {
   
   // Allocate dynamic arrays dA and dB of size N on the GPU with cudaMalloc
   // Allouer les tableau dA et dB dynamiques de size N sur le GPU avec cudaMalloc 
-  // TODO / A FAIRE ...
+  cudaError_t cuStat;
+  cuStat = cudaMalloc((void **)&dA, N*sizeof(float));
+  if (cuStat != cudaSuccess) {
+    printf("L'allocation de la memoire a echoue avec le code d'erreur \"%s\".\n", cudaGetErrorString(cuStat));
+  }
+  cuStat = cudaMalloc((void **)&dB, N*sizeof(float));
+  if (cuStat != cudaSuccess) {
+    printf("L'allocation de la memoire a echoue avec le code d'erreur \"%s\".\n", cudaGetErrorString(cuStat));
+  }
 
   // Copy A into dA and B into dB
   // Copier A dans dA et B dans dB
-  // TODO / A FAIRE ...
+  cudaMemcpy(dA, A, N*sizeof(float), cudaMemcpyHostToDevice);
+  cudaMemcpy(dB, B, N*sizeof(float), cudaMemcpyHostToDevice);
 
   // Copy dA into dB using the kernel cudaCopyByBlocks
   // Copier dA dans dB avec le kernel cudaCopyByBlocks
-  // TODO / A FAIRE ...
-  // cudaCopyByBlocks<<<...,...>>>(...) ???
+  cudaCopyByBlocks<<<N, 1>>>(dB, dA, N);
 
   // Wait for kernel cudaCopyByBlocks to finish
   // Attendre que le kernel cudaCopyByBlocks termine
@@ -65,7 +65,7 @@ int main(int argc, char **argv) {
 
   // Copy dB into B for verification
   // Copier dB dans B pour la verification
-  // TODO / A FAIRE ...
+  cudaMemcpy(B, dB, N*sizeof(float), cudaMemcpyDeviceToHost);
 
   // Verify the results on the CPU by comparing B with A
   // Verifier le resultat en CPU en comparant B avec A
@@ -76,12 +76,14 @@ int main(int argc, char **argv) {
   // Reinitialize B to zero, then copy B into dB again to test the second copy kernel
   // Remettre B a zero puis recopier dans dB tester le deuxieme kernel de copie
   for (int i = 0; i < N; i++) { B[i] = 0.0f; }
-  // TODO / A FAIRE ...
+  cudaMemcpy(dB, B, N*sizeof(float), cudaMemcpyHostToDevice);
 
   // Copy dA into dB with the kernel cudaCopyByBlocksThreads
   // Copier dA dans dB avec le kernel cudaCopyByBlocksThreads
-  // TODO / A FAIRE ...
-  // cudaCopyByBlocksThreads<<<...,...>>>(...) ???
+  unsigned nbThreadsPerBlock = 32;
+  unsigned nbBlocks = N%nbThreadsPerBlock ? N/nbThreadsPerBlock + 1 : N/nbThreadsPerBlock;
+  cudaCopyByBlocksThreads<<<nbBlocks, nbThreadsPerBlock>>>(dB, dA, N);
+
 
   // Wait for the kernel cudaCopyByBlocksThreads to finish
   // Attendre que le kernel cudaCopyByBlocksThreads termine
@@ -92,7 +94,7 @@ int main(int argc, char **argv) {
 
   // Copy dB into B for verification
   // Copier dB dans B pour la verification
-  // TODO / A FAIRE ...
+  cudaMemcpy(B, dB, N*sizeof(float), cudaMemcpyDeviceToHost);
 
   // Verify the results on the CPU by comparing B with A
   // Verifier le resultat en CPU en comparant B avec A
@@ -102,7 +104,14 @@ int main(int argc, char **argv) {
 
   // Deallocate arrays dA[N] and dB[N] on the GPU
   // Desaollouer le tableau dA[N] et dB[N] sur le GPU
-  // TODO / A FAIRE ...
+  cuStat = cudaFree(dA);
+  if (cuStat != cudaSuccess) {
+    printf("La libération de la memoire a echoue avec le code d'erreur \"%s\".\n", cudaGetErrorString(cuStat));
+  }
+  cuStat = cudaFree(dB);
+  if (cuStat != cudaSuccess) {
+    printf("La libération de la memoire a echoue avec le code d'erreur \"%s\".\n", cudaGetErrorString(cuStat));
+  }
 
   // Deallocate A and B
   // Desallouer A et B

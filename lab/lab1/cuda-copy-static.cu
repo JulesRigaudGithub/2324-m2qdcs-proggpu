@@ -8,7 +8,7 @@ using namespace std;
 
 // Define an static array dA[N] of floats on the GPU
 // Definir un tableau de float dA[N] de taille statique sur le GPU
-// TODO / A FAIRE ...
+__device__ float dA[N];
 
 int main() {
   float A[N], B[N];
@@ -20,11 +20,11 @@ int main() {
 
   // cudaMemcpy from A[N] to dA[N]
   // cudaMemcpy de A[N] vers dA[N]
-  // TODO / A FAIRE ...
+  cudaMemcpyToSymbol(dA, A, N*sizeof(float), 0, cudaMemcpyHostToDevice);
 
-  // cudaMemcpy from dA[N} to B[N]
+  // cudaMemcpy from dA[N] to B[N]
   // cudaMemcpy de dA[N] vers B[N]
-  // TODO / A FAIRE ...
+  cudaMemcpyFromSymbol(B, dA, N*sizeof(float), 0, cudaMemcpyDeviceToHost);
 
   // Wait for GPU kernels to terminate
   // Attendre que les kernels GPUs terminent

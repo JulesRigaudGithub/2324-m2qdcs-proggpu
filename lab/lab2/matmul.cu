@@ -19,7 +19,13 @@ float *dA, *dB, *dC;
 // Creer un bloc pour le calcul de chaque element C(i, j), calculer avec 1 thread par bloc
 __global__ void multiplyMatrixGPUByBlocks(float *dA, float *dB, float *dC, int n)
 {
-  // TODO / A FAIRE ...
+  int col = blockIdx.x;
+  int row = blockIdx.y;
+  float res = 0;
+  for (int k = 0; k < n; k++) {
+    res += dA[row*N + k] * dB[k + col*N]
+  }
+  dC[row*n + col] = res;
 }
 
 
@@ -29,7 +35,13 @@ __global__ void multiplyMatrixGPUByBlocks(float *dA, float *dB, float *dC, int n
 // Supposer que N est un divisible par blockDim.x
 __global__ void multiplyMatrixGPUByBlocksThreads1D(float *dA, float *dB, float *dC, int n)
 {
-  // TODO / A FAIRE ...
+  int col = (blockDim.x * blockIdx.x) + threadIdx.x;
+  int row = blockIdx.y;
+  float res = 0;
+  for (int k = 0; k < n; k++) {
+    res += dA[row*N + k] * dB[k + col*N]
+  }
+  dC[row*n + col] = res;
 }
 
 
@@ -40,7 +52,16 @@ __global__ void multiplyMatrixGPUByBlocksThreads1D(float *dA, float *dB, float *
 // Faire marcher pour N n'est pas multiple de blockDim.x.
 __global__ void multiplyMatrixGPUByBlocksThreads1DNonMultiple(float *dA, float *dB, float *dC, int n)
 {
-  // TODO / A FAIRE ...
+  int col = (blockDim.x * blockIdx.x) + threadIdx.x;
+  
+  if (col < n) {
+  int row = blockIdx.y;
+  float res = 0;
+    for (int k = 0; k < n; k++) {
+      res += dA[row*N + k] * dB[k + col*N]
+    }
+    dC[row*n + col] = res;
+  }
 }
 
 
@@ -52,7 +73,13 @@ __global__ void multiplyMatrixGPUByBlocksThreads1DNonMultiple(float *dA, float *
 // Supposer que N est un divisible par blockDim.x
 __global__ void multiplyMatrixGPUByBlocksThreads2D(float *dA, float *dB, float *dC, int n)
 {
-  // TODO / A FAIRE ...
+  int col = (blockDim.x * blockIdx.x) + threadIdx.x;
+  int row = (blockDim.y * blockIdx.y) + threadIdx.y;
+  float res = 0;
+  for (int k = 0; k < n; k++) {
+    res += dA[row*N + k] * dB[k + col*N]
+  }
+  dC[row*n + col] = res;
 }
 
 
@@ -63,7 +90,15 @@ __global__ void multiplyMatrixGPUByBlocksThreads2D(float *dA, float *dB, float *
 // Faire marcher pour N n'est pas multiple de ni blockDim.x ni blockDim.y.
 __global__ void multiplyMatrixGPUByBlocksThreads2DNonMultiple(float *dA, float *dB, float *dC, int n)
 {
-  // TODO / A FAIRE ...
+  int col = (blockDim.x * blockIdx.x) + threadIdx.x;
+  int row = (blockDim.y * blockIdx.y) + threadIdx.y;
+  if ((col < n) && (row < n)) {
+    float res = 0;
+    for (int k = 0; k < n; k++) {
+      res += dA[row*N + k] * dB[k + col*N]
+    }
+    dC[row*n + col] = res;
+  }
 }
 
 

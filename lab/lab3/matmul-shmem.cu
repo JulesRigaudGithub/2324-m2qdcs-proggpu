@@ -1,6 +1,8 @@
 #include <cstdio>  
 #include <iostream>
-#include "cuda.h"  
+#include "cuda.h" 
+
+#include <chrono>
 
 #define N 1024
 #define BSXY 32
@@ -122,6 +124,33 @@ __global__ void multiplyMatrixGPUByBlocksThreads2DNonMultipleSharedMemory(float 
   __shared__ float shA[BSXY][BSXY];
   __shared__ float shB[BSXY][BSXY];
   float c = 0.0;
+
+  int col = threadIdx.x + blockIdx.x * BSXY;
+  int row = threadIdx.y + blockIdx.y * BSXY;
+
+
+  for (int p = 0 ; p < (n%BSXY?n+BSXY:n); p +=  BSXY) {
+    int col_temp = threadIdx.x + p;
+    int row_temp = threadIdx.y + p;
+    __syncthreads();
+
+    if (row < n && col_temp < n) {
+      shA[threadIdx.y][threadIdx.x] = dA[row * n + col_temp];
+    } else {
+      shA[threadIdx.y][threadIdx.x] = 0;
+    }
+    shA[threadIdx.y][threadIdx.x] = (row < n && col_temp < n)?dA[row * n + col_temp]:0;
+
+    shB[threadIdx.x][threadIdx.y] = (row_temp < n && col < n)?dB[row_temp + col * n]:0;
+
+    __syncthreads();
+
+    for (int k = 0; k < BSXY; k++) { c += shA[threadIdx.y][k] * shB[k][threadIdx.x]; }
+  }
+
+
+
+  if (row < n && col < n) { dC[row * n + col] = c; } 
 }
 
 
@@ -150,6 +179,7 @@ void verifyResults()
       }
       if (std::abs(C[i * N + j] - c) > 1e-6) {
         std::cout << "Multiplication is incorrect for the element C[" << i << "][" << j << "]" << std::endl;
+        std::cout << "Difference is " << std::abs(C[i * N + j] - c) << std::endl;
         return;
       }
     }
@@ -167,8 +197,8 @@ int main(int argc, char **argv)
   C = (float *)malloc(N * N * sizeof(C[0]));
   for (int j = 0; j < N; j++) { 
     for (int i = 0; i < N; i++) { 
-      A[i + j * N] = i + j; // A(i, j) = i + j
-      B[i + j * N] = 1.0f; // B(j, i) = 1
+      B[i + j * N] = i + j; // A(i, j) = i + j
+      A[i + j * N] = 1.0f; // B(j, i) = 1
     }
   }
 
@@ -181,6 +211,7 @@ int main(int argc, char **argv)
   cudaMemcpy(dA, A, N * N * sizeof(float), cudaMemcpyHostToDevice);
   cudaMemcpy(dB, B, N * N * sizeof(float), cudaMemcpyHostToDevice);
 
+  auto start = std::chrono::high_resolution_clock::now();
 
   // Call each GPU kernel appropriately to multiply matrices A and B
   // Measure and print the execution time and performance (GFlops/s) of each kernel, without counting the data transfer time
@@ -239,11 +270,35 @@ int main(int argc, char **argv)
     dimGrid.z = 1;
     // multiplyMatrixGPUByBlocksThreads2DNonMultiple<<<dimGrid, dimBlock>>>(N);
   }
+  {
+    dim3 dimGrid;
+    dim3 dimBlock;
+    dimBlock.x = BSXY;
+    dimBlock.y = BSXY;
+    dimBlock.z = 1;
+    dimGrid.x = (N - 1) / BSXY + 1;
+    dimGrid.y = (N - 1) / BSXY + 1;
+    dimGrid.z = 1;
+    multiplyMatrixGPUByBlocksThreads2DNonMultipleSharedMemory<<<dimGrid, dimBlock>>>(dA, dB, dC, N);
+  }
 
   // Copy the array dC back to the CPU
   // Recopier le tableau dC vers le CPU
   // TODO / A FAIRE ...
   cudaMemcpy(C, dC, N * N * sizeof(float), cudaMemcpyDeviceToHost);
+
+  auto stop = std::chrono::high_resolution_clock::now();
+
+  // Estimation du temps de transfert retour pour déduction
+  auto tr_start = std::chrono::high_resolution_clock::now();
+  cudaMemcpy(C, dC, N * N * sizeof(float), cudaMemcpyDeviceToHost);
+  auto tr_stop = std::chrono::high_resolution_clock::now();
+
+  auto duration = std::chrono::duration<double>((stop - start) - (tr_stop - tr_start)).count();
+  std::cout << "Le temps d'exécution du kernel est de " << duration << " secondes\n";
+
+  double gflops_s = (2.0*pow(N,3))/duration*1E-9;
+  std::cout << "Cela correspond à " << gflops_s << "GFlops/s" << std::endl;
 
   // Verify the results
   // Verifier les resultats

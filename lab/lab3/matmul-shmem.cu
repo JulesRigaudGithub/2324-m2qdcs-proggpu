@@ -134,14 +134,10 @@ __global__ void multiplyMatrixGPUByBlocksThreads2DNonMultipleSharedMemory(float 
     int row_temp = threadIdx.y + p;
     __syncthreads();
 
-    if (row < n && col_temp < n) {
-      shA[threadIdx.y][threadIdx.x] = dA[row * n + col_temp];
-    } else {
-      shA[threadIdx.y][threadIdx.x] = 0;
-    }
+
     shA[threadIdx.y][threadIdx.x] = (row < n && col_temp < n)?dA[row * n + col_temp]:0;
 
-    shB[threadIdx.x][threadIdx.y] = (row_temp < n && col < n)?dB[row_temp + col * n]:0;
+    shB[threadIdx.y][threadIdx.x] = (row_temp < n && col < n)?dB[row_temp + col * n]:0;
 
     __syncthreads();
 
@@ -197,8 +193,8 @@ int main(int argc, char **argv)
   C = (float *)malloc(N * N * sizeof(C[0]));
   for (int j = 0; j < N; j++) { 
     for (int i = 0; i < N; i++) { 
-      B[i + j * N] = i + j; // A(i, j) = i + j
-      A[i + j * N] = 1.0f; // B(j, i) = 1
+      A[i + j * N] = i + 2*j; // A(i, j) = i + j
+      B[i + j * N] = 1.0f; // B(j, i) = 1
     }
   }
 

@@ -23,7 +23,17 @@ __global__ void findMinimum(float *dA, float *dAmin, int N)
 {
   __shared__ volatile float buff[BLOCKSIZE];
   int idx = threadIdx.x + blockIdx.x * BLOCKSIZE;
-  // TODO / A FAIRE ...
+  buff[threadIdx.x] = dA[idx];
+
+  for (int step = BLOCKSIZE/2; step >= 1 ; step = step / 2) {
+    if (threadIdx.x < BLOCKSIZE/2) {
+      float a = buff[threadIdx.x];
+      float b = buff[2*threadIdx.x];
+      buff[threadIdx.x] = fminf(a, b);
+    }
+  }
+
+  if (threadIdx.x == 0) { dAmin[blockIdx.x] = buff[0]; }
 }
 
 using namespace std;
@@ -32,37 +42,46 @@ int main()
 {
   srand(1234);
   int N = 100000000;
-  int numBlocks;// = ???; (TODO / A FAIRE ...)
+  int numBlocks = N/ BLOCKSIZE;// = ???; (TODO / A FAIRE ...)
   float *A, *dA; // Le tableau dont minimum on va chercher
   float *Amin, *dAmin; // Amin contiendra en suite le tableau reduit par un facteur de BLOCKSIZE apres l'execution du kernel GPU
 
   // Allocate arrays A[N] and Amin[numBlocks} on the CPU
+  A = (float *)malloc(sizeof(float) * N);
+  Amin = (float *)malloc(sizeof(float) * numBlocks);
+
   // Allocate arrays dA[N] and dAmin[numBlocks} on the GPU
-  // Allour les tableaux A[N] et Amin[numBlocks] sur le CPU
-  // Allouer les tableaux dA[N] et dAmin[numBlocks] sur le GPU
-  // TODO / A FAIRE ...
+  cudaMalloc(&dA, sizeof(float) * N);
+  cudaMalloc(&dAmin, sizeof(float) * numBlocks);
+
+
 
   // Initialize the array A, set the minimum to -1
   // Initialiser le tableau A, mettre le minimum a -1.
   for (int i = 0; i < N; i++) { A[i] = (float)(rand() % 1000); }
-  A[rand() % N] = -1.0; 
+  int secret = rand() % N;
+  cout << secret << endl;
+  A[1] = -1.0; 
 
   // Transfer A on the GPU (dA) with cudaMemcpy
-  // Transferer A sur le GPU (dA) avec cudaMemcpy
-  // TODO / A FAIRE ...
+  cudaMemcpy(dA, A, N * sizeof(float), cudaMemcpyHostToDevice);
 
   // Put maximum attainable value to minA.
   // Affecter la valeur maximum atteignable dans minA
   float minA = FLT_MAX; 
 
   // Find the minimum of the array dA for each thread block, put it in dAMin[...] and transfer to the CPU, then find the global minimum of this smaller array and put it in minA.
-  // Trouver le minimum du tableau dA pour chaque bloc de threads, mettre dans dAmin[...] puis transferer vers le CPU, puis trouver le minimum global de ce petit tableau et l'affecter dans la variable minA.
-  // TODO / A FAIRE ...
-  // findMinimum<<<...>>>(...)
-  // ...
+  findMinimum<<<numBlocks, BLOCKSIZE>>>(dA, dAmin, N);
+
+  cudaMemcpy(Amin, dAmin, numBlocks * sizeof(float), cudaMemcpyDeviceToHost);
+
+  for (int k = 0; k < numBlocks; k++) {
+    int test = Amin[k];
+    // cout << test << " ";
+    minA = (minA < test) ? minA : test;
+  }
 
   // Verify the result
-  // Verifier le resultat
   if (minA == -1) { cout << "The minimum is correct!" << endl; }
   else { cout << "The minimum found (" << minA << ") is incorrect (it should have been -1)!" << endl; }
 

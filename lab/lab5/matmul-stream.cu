@@ -1,5 +1,6 @@
 #include <cstdio>
 #include <cuda.h>
+#include <iostream>
 
 int N = 1024;
 const int nStreams = 4;
@@ -9,9 +10,34 @@ cudaStream_t streams[nStreams];
 
 // Kernel that performs the matrix vector multiplication b(i) = sum_j(A(i, j), x(j))
 // A is row-major (stored row-by-row in memory)
-__device__ void matvec(float *A, float *x, float *b, int n)
+__global__ void matvec(float *A, float *x, float *b, int n)
 {
   // TODO / A FAIRE ...
+  int i = threadIdx.x;
+  float c = 0;
+
+  for (int j = 0; j < n ; j++) {
+    c += A[i*n + j]*x[j];
+  }
+
+  b[i] = c;
+}
+
+void verifyResults()
+{
+  for (int j = 0; j < N; j++) {
+    for (int i = 0; i < N; i++) {
+      float c = 0.0f;
+      for (int k = 0; k < N; k++) {
+        c += A[i * N + k] * B[k + j * N];
+      }
+      if (std::abs(C[i + j*N] - c) > 1e-6) {
+        std::cout << "Multiplication is incorrect for the element C[" << i << "][" << j << "]" << std::endl;
+        return;
+      }
+    }
+  }
+  std::cout << "Multiplication is correct!" << std::endl;
 }
 
 int main()
@@ -44,14 +70,27 @@ int main()
   for (int j = 0; j < N; j++) {
     // Copy the column j of B into one of slots in dB using the stream no (j % nStreams) and cudaMemcpyAsync
     // TODO / A FAIRE ...
+    int streamId = j % nStreams;
+
+    float *dB_col = dB + streamId*N;
+    float *dC_col = dC + streamId*N;
+
+    float *B_col = B + j*N;
+    float *C_col = C + j*N;
+
+    cudaMemcpyAsync(dB_col, B_col, N * sizeof(float), cudaMemcpyHostToDevice, streams[streamId]);
 
     // Perform the matrix-vector multiplication on A and the column vector in dB(:, j % nStreams), compute on dC(:, j % nStreams), using stream no (j % nStreams)
     // TODO / A FAIRE ...
+    matvec<<<1, N, 0, streams[streamId] >>>(dA, dB_col, dC_col, N);
 
     // Copy back the computed vector dC(:, j % nStreams) into the column C(:, j) using the same stream no (j % nStreams) and cudaMemcpyAsync
+    cudaMemcpyAsync(C_col, dC_col, N * sizeof(float), cudaMemcpyDeviceToHost, streams[streamId]);
   }
   
   cudaDeviceSynchronize();
+
+  verifyResults();
 
   free(A); free(B); free(C);
   cudaFree(dA); cudaFree(dB); cudaFree(dC);

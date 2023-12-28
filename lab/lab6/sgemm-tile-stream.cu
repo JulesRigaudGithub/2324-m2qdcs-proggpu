@@ -51,11 +51,13 @@
   * See https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__MEMORY.html#group__CUDART__MEMORY_1ge529b926e8fb574c2666a9a1d58b0dc1 for details of usage.
   */
 
+#include <iostream>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
+#include <chrono>
 
 #define N 4096
 #define P 2
@@ -118,6 +120,8 @@ int main(int argc, char **argv) {
     exit(1);
   }
 
+  auto start = std::chrono::high_resolution_clock::now();
+
   // *   -Copy contents of A, B to dA, dB
   cuStat = cudaMemcpy(d_A, A, sizeof(float) * n2, cudaMemcpyHostToDevice);
   if (cuStat != cudaSuccess) {
@@ -154,14 +158,21 @@ int main(int argc, char **argv) {
     exit(1);
   }
 
+  auto stop = std::chrono::high_resolution_clock::now();
+  
   // *   -Measure and print the total execution time including host-to-device copy, sgemm, and device-to-host copy and flops/s (sgemm performs 2*N*N*(N-1) flops)
+  auto duration = std::chrono::duration<double>(stop - start).count();
+  std::cout << "Le temps d'exécution du kernel est de " << duration << " secondes\n";
 
-  // Synchronization with the device
-  cuStat = cudaDeviceSynchronize();
-  if (cuStat != cudaSuccess) {
-    printf("L'execution du kernel a echoue avec le code d'erreur \"%s\".\n", cudaGetErrorString(cuStat));
-    exit(1);
-  }
+  double gflops_s = (2.0*pow(N,2)*(N-1))/duration*1E-9;
+  std::cout << "Cela correspond à " << gflops_s << "GFlops/s" << std::endl;
+
+  // // Synchronization with the device
+  // cuStat = cudaDeviceSynchronize();
+  // if (cuStat != cudaSuccess) {
+  //   printf("L'execution du kernel a echoue avec le code d'erreur \"%s\".\n", cudaGetErrorString(cuStat));
+  //   exit(1);
+  // }
 
   // Free GPU memory
   cuStat = cudaFree(d_A);

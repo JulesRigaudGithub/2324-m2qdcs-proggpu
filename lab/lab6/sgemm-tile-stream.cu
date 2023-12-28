@@ -85,6 +85,7 @@ int main(int argc, char **argv) {
   float beta = 0.0f;
   int n2 = N * N;
   cublasHandle_t handle;
+  cudaError_t cuStat;
 
   // CUBLAS init
   status = cublasCreate(&handle);
@@ -94,7 +95,93 @@ int main(int argc, char **argv) {
   }
 
   // TODO / A FAIRE ...
+  // Task 1: Basic CuBLAS execution and benchmarking.
+  // *   -Allocate and initialize three N * N column-major float matrices A, B, C on the CPU.
+  A = (float *) malloc(sizeof(float) * n2);
+  B = (float *) malloc(sizeof(float) * n2);
+  C = (float *) malloc(sizeof(float) * n2);
+ 
+  // *   -Allocate dA, dB, dC on the GPU.
+  cuStat = cudaMalloc((void **)&d_A, sizeof(float) * n2);
+  if (cuStat != cudaSuccess) {
+    printf("L'allocation de la memoire a echoue avec le code d'erreur \"%s\".\n", cudaGetErrorString(cuStat));
+    exit(1);
+  }
+  cuStat = cudaMalloc((void **)&d_B, sizeof(float) * n2);
+  if (cuStat != cudaSuccess) {
+    printf("L'allocation de la memoire a echoue avec le code d'erreur \"%s\".\n", cudaGetErrorString(cuStat));
+    exit(1);
+  }
+  cuStat = cudaMalloc((void **)&d_C, sizeof(float) * n2);
+  if (cuStat != cudaSuccess) {
+    printf("L'allocation de la memoire a echoue avec le code d'erreur \"%s\".\n", cudaGetErrorString(cuStat));
+    exit(1);
+  }
 
+  // *   -Copy contents of A, B to dA, dB
+  cuStat = cudaMemcpy(d_A, A, sizeof(float) * n2, cudaMemcpyHostToDevice);
+  if (cuStat != cudaSuccess) {
+    printf("Le transfert a échoué avec le message d'erreur %s", cudaGetErrorString(cuStat));
+    exit(1);
+  }
+  cuStat = cudaMemcpy(d_B, B, sizeof(float) * n2, cudaMemcpyHostToDevice);
+  if (cuStat != cudaSuccess) {
+    printf("Le transfert a échoué avec le message d'erreur %s", cudaGetErrorString(cuStat));
+    exit(1);
+  }
+
+  // *   -Execute cublasSgemm(...)
+  status = cublasSgemm(
+    handle,
+    CUBLAS_OP_N,
+    CUBLAS_OP_N,
+    N, N, N,
+    &alpha,
+    d_A, N,
+    d_B, N,
+    &beta,
+    d_C, N);
+
+  if (status != CUBLAS_STATUS_SUCCESS) {
+    fprintf(stderr, "CUBLAS Sgemm error!\n");
+    return 1;
+  }
+
+  // *   -Copy dC back to C
+  cuStat = cudaMemcpy(C, d_C, sizeof(float) * n2, cudaMemcpyDeviceToHost);
+  if (cuStat != cudaSuccess) {
+    printf("Le transfert a échoué avec le message d'erreur %s", cudaGetErrorString(cuStat));
+    exit(1);
+  }
+
+  // *   -Measure and print the total execution time including host-to-device copy, sgemm, and device-to-host copy and flops/s (sgemm performs 2*N*N*(N-1) flops)
+
+  // Synchronization with the device
+  cuStat = cudaDeviceSynchronize();
+  if (cuStat != cudaSuccess) {
+    printf("L'execution du kernel a echoue avec le code d'erreur \"%s\".\n", cudaGetErrorString(cuStat));
+    exit(1);
+  }
+
+  // Free GPU memory
+  cuStat = cudaFree(d_A);
+  if (cuStat != cudaSuccess) {
+    printf("La libération de la memoire a echoue avec le code d'erreur \"%s\".\n", cudaGetErrorString(cuStat));
+    exit(1);
+  }
+  cuStat = cudaFree(d_B);
+  if (cuStat != cudaSuccess) {
+    printf("La libération de la memoire a echoue avec le code d'erreur \"%s\".\n", cudaGetErrorString(cuStat));
+    exit(1);
+  }
+  cuStat = cudaFree(d_C);
+  if (cuStat != cudaSuccess) {
+    printf("La libération de la memoire a echoue avec le code d'erreur \"%s\".\n", cudaGetErrorString(cuStat));
+    exit(1);
+  }
+
+  // Free CPU memory
+  free(A); free(B); free(C);
 
   // CUBLAS destroy
   status = cublasDestroy(handle);

@@ -84,10 +84,34 @@ int main(int argc, char **argv) {
   float *d_B = 0;
   float *d_C = 0;
   float alpha = 1.0f;
-  float beta = 0.0f;
+  float beta = 1.0f;
   int n2 = N * N;
   cublasHandle_t handle;
   cudaError_t cuStat;
+
+  cudaStream_t computeStreams[P][P];
+  cudaStream_t transferStream;
+
+  cudaEvent_t eventTileA[P][P];
+  cudaEvent_t eventTileB[P][P];
+
+  int tile_size = N / P;
+
+  //  -Create one transfer stream for host-to-device transfers and P x P streams for computing each tile of C(pi, pj) for 0 <= pi, pj < P
+  for (int i = 0; i < P; i++) {
+    for (int j = 0; j < P; j++) {
+      cudaStreamCreate(&computeStreams[i][j]);
+    }
+  }
+  cudaStreamCreate(&transferStream);
+
+  // Events registration
+  for (int i = 0; i < P; i++) {
+    for (int j = 0; j < P; j++) {
+      cudaEventCreate(&eventTileA[i][j]);
+      cudaEventCreate(&eventTileB[i][j]);
+    }
+  }
 
   // CUBLAS init
   status = cublasCreate(&handle);
@@ -119,37 +143,114 @@ int main(int argc, char **argv) {
     printf("L'allocation de la memoire a echoue avec le code d'erreur \"%s\".\n", cudaGetErrorString(cuStat));
     exit(1);
   }
+  cuStat = cudaMemset((void *)d_C, 0, sizeof(float) * n2);
+  if (cuStat != cudaSuccess) {
+    printf("L'assignation de la memoire a echoue avec le code d'erreur \"%s\".\n", cudaGetErrorString(cuStat));
+    exit(1);
+  }
 
   auto start = std::chrono::high_resolution_clock::now();
 
-  // *   -Copy contents of A, B to dA, dB
-  cuStat = cudaMemcpy(d_A, A, sizeof(float) * n2, cudaMemcpyHostToDevice);
-  if (cuStat != cudaSuccess) {
-    printf("Le transfert a échoué avec le message d'erreur %s", cudaGetErrorString(cuStat));
-    exit(1);
-  }
-  cuStat = cudaMemcpy(d_B, B, sizeof(float) * n2, cudaMemcpyHostToDevice);
-  if (cuStat != cudaSuccess) {
-    printf("Le transfert a échoué avec le message d'erreur %s", cudaGetErrorString(cuStat));
-    exit(1);
+  // // *   -Copy contents of A, B to dA, dB
+  // cuStat = cudaMemcpy(d_A, A, sizeof(float) * n2, cudaMemcpyHostToDevice);
+  // if (cuStat != cudaSuccess) {
+  //   printf("Le transfert a échoué avec le message d'erreur %s", cudaGetErrorString(cuStat));
+  //   exit(1);
+  // }
+  // cuStat = cudaMemcpy(d_B, B, sizeof(float) * n2, cudaMemcpyHostToDevice);
+  // if (cuStat != cudaSuccess) {
+  //   printf("Le transfert a échoué avec le message d'erreur %s", cudaGetErrorString(cuStat));
+  //   exit(1);
+  // }
+
+  // -Transfer all tiles A(pi, pj) and B(pi, pj) to dA(pi, pj) and dB(pi, pj) in the transfer stream for 0 <= pi, pj < P, and launch an event ea(pi, pj) and eb(pi, pj) for each tile transfer
+
+  for (int i = 0; i < P; i++) {
+    for (int j = 0; j < P; j++) {
+
+      cuStat = cudaMemcpy2DAsync(
+        d_A + (i + j*N) * tile_size,
+        sizeof(float)*tile_size,
+        A + (i + j*N) * tile_size,
+        sizeof(float)*tile_size,
+        sizeof(float)*tile_size,
+        sizeof(float)*tile_size,
+        cudaMemcpyHostToDevice,
+        transferStream);
+      if (cuStat != cudaSuccess) {
+        printf("Le transfert a échoué avec le message d'erreur %s", cudaGetErrorString(cuStat));
+        exit(1);
+      }
+      cudaEventRecord(eventTileA[i][j], transferStream);
+      
+      cuStat = cudaMemcpy2DAsync(
+        d_B + (i + j*N) * tile_size,
+        sizeof(float)*tile_size,
+        B + (i + j*N) * tile_size,
+        sizeof(float)*tile_size,
+        sizeof(float)*tile_size,
+        sizeof(float)*tile_size,
+        cudaMemcpyHostToDevice,
+        transferStream);
+      if (cuStat != cudaSuccess) {
+        printf("Le transfert a échoué avec le message d'erreur %s", cudaGetErrorString(cuStat));
+        exit(1);
+      }
+      cudaEventRecord(eventTileB[i][j], transferStream);
+    }
   }
 
+
+  // -Schedule all tile sgemms required to compute dC(pi, pj) into stream(pi, pj), add data dependencies for each operation with event wait. Use cublasSetStream(handle, stream) each time to make sure that sgemm is placed onto the stream(pi, pj).
   // *   -Execute cublasSgemm(...)
-  status = cublasSgemm(
-    handle,
-    CUBLAS_OP_N,
-    CUBLAS_OP_N,
-    N, N, N,
-    &alpha,
-    d_A, N,
-    d_B, N,
-    &beta,
-    d_C, N);
+  for (int i = 0; i < P; i++) {
+    for (int j = 0; j < P; j++) {
+      cublasSetStream(handle, computeStreams[i][j]);
+      for (int k = 0; k < P; k++) {
+        // add A(i, k) * B(k, j) to C(i,j)
+        cuStat = cudaStreamWaitEvent(computeStreams[i][j], eventTileA[i][k]);
+        if (cuStat != cudaSuccess) {
+          printf("L'attente de l'événement à échoué %s", cudaGetErrorString(cuStat));
+          exit(1);
+        }
+        cuStat = cudaStreamWaitEvent(computeStreams[i][j], eventTileB[k][j]);
+        if (cuStat != cudaSuccess) {
+          printf("L'attente de l'événement à échoué %s", cudaGetErrorString(cuStat));
+          exit(1);
+        }
+        status = cublasSgemm(
+          handle,
+          CUBLAS_OP_N,
+          CUBLAS_OP_N,
+          tile_size, tile_size, tile_size,
+          &alpha,
+          d_A + (i + k*N) * tile_size, tile_size,
+          d_B + (k + j*N) * tile_size, tile_size,
+          &beta,
+          d_C + (i + j*N) * tile_size, N);
+        if (status != CUBLAS_STATUS_SUCCESS) {
+          fprintf(stderr, "CUBLAS Sgemm error!\n");
+          return 1;
+        }
+      }
 
-  if (status != CUBLAS_STATUS_SUCCESS) {
-    fprintf(stderr, "CUBLAS Sgemm error!\n");
-    return 1;
+      cuStat = cudaMemcpy2DAsync(
+        C + (i + j*N) * tile_size,
+        sizeof(float)*tile_size,
+        d_C + (i + j*N) * tile_size,
+        sizeof(float)*tile_size,
+        sizeof(float)*tile_size,
+        sizeof(float)*tile_size,
+        cudaMemcpyDeviceToHost,
+        computeStreams[i][j]);
+      if (cuStat != cudaSuccess) {
+        printf("Le transfert a échoué avec le message d'erreur %s", cudaGetErrorString(cuStat));
+        exit(1);
+      }
+      cudaEventRecord(eventTileA[i][j], transferStream);
+    }
   }
+
 
   // *   -Copy dC back to C
   cuStat = cudaMemcpy(C, d_C, sizeof(float) * n2, cudaMemcpyDeviceToHost);
